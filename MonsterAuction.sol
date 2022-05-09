@@ -6,9 +6,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 import "./MonsterNFT.sol";
-import "hardhat/console.sol";
 
-contract MintAuction is Ownable, IERC721Receiver {
+contract MonsterAuction is Ownable, IERC721Receiver {
     // Events would be used for frontend to track the auction
     event LogBid(address indexed bidder, uint256 bid, uint256 monster);
     event Refund(address indexed bidder, uint256 bid, uint256 monster);
@@ -143,9 +142,6 @@ contract MintAuction is Ownable, IERC721Receiver {
         );
         monsterNFT.safeTransferFrom(address(this), winner1, monster1);
 
-        // Should do this: $25 Mint Fee in $Honey charge to each winner*
-        // Should set the dailyMonsters for the upcoming auction
-
         // RESET bids
         highestBid1 = 0;
         highestBidder1 = address(0);
@@ -185,10 +181,10 @@ contract MintAuction is Ownable, IERC721Receiver {
         _day = _day;
 
         if (openMapping[pseudoRandom] != 0) {
-            monsterNFT.mint(msg.sender, openMapping[pseudoRandom]);
+            monsterNFT.mint(address(this), openMapping[pseudoRandom]);
             dailyMonster[_day] = openMapping[pseudoRandom];
         } else {
-            monsterNFT.mint(msg.sender, pseudoRandom);
+            monsterNFT.mint(address(this), pseudoRandom);
             dailyMonster[_day] = pseudoRandom;
         }
         if (openMapping[startIndex + counter - 1] != 0) {
