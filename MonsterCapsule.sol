@@ -12,6 +12,8 @@ contract MonsterCapsule is ERC1155, Ownable {
     Counters.Counter public generationCounter;
     mapping(uint256 => uint256) public generations;
     mapping(uint256 => uint256) public generationsMax;
+    uint256 public maxSupply = 0;
+    uint256 public currentSupply = 0;
 
     // Contract whitelist
     mapping(address => bool) public contractWhitelist;
@@ -30,12 +32,17 @@ contract MonsterCapsule is ERC1155, Ownable {
     {
         paused = false;
     }
-    function setBaseURI(string memory _value) public onlyOwner{
+
+    function setBaseURI(string memory _value, _maxSupply) public onlyOwner{
         _setURI(_value);
+        maxSupply = _maxSupply;
     }
+
     function setMaxPerGen(uint256 _gen, uint _value) public onlyOwner{
+        require(_value <= maxGenerations && _value >= minGeneration, "invalid value");
         generationsMax[_gen] = _value;
     }
+
     function mint(address _recipient, uint256 _amount, uint256 _generation)
         external
         onlyWhitelisted
@@ -43,11 +50,11 @@ contract MonsterCapsule is ERC1155, Ownable {
         require(!paused, "Contract is paused.");
         require(_generation >= minGeneration, "gen < 1");
         require(_generation <= maxGenerations, "gen > 3");
+        require(currentSupply + 1 <= maxSupply, "over max supply");
         require(generations[_generation] + _amount < generationsMax[_generation], "> max per gen");
         generations[_generation] += _amount;
-
+        currentSupply ++;
         _mint(_recipient, _generation, _amount, "");
-
     }
 
     function burn(
@@ -72,7 +79,6 @@ contract MonsterCapsule is ERC1155, Ownable {
             "ERC1155: caller is not owner nor approved"
         );
         _burnBatch(account, ids, values);
-
     }
 
     function whitelistContract(address _contract, bool _whitelisted)

@@ -27,23 +27,25 @@ contract MonsterAuction is Ownable, IERC721Receiver {
     // batch => [monsterIDs]
     uint256[] public monsters;
 
-    uint256 public maxNumberToMint = 400;
-
     bool public paused;
 
     address public highestBidder1;
     uint256 public highestBid1;
 
-
     // day => [bidderAddrAsUint, bidAmount, monsterId, block.timestamp]
     mapping(uint256 => uint256[4][]) public bids1;
 
     // day => [monsterIds]
-     mapping(uint256 => uint256) public dailyMonster;
+    mapping(uint256 => uint256) public dailyMonster;
+
+    uint256 public dailyDuration = 82800;
+    uint256 public lastExecutiontime = 0;
+    uint256 public lastExecutedDay = 0;
+    bool private initialAuctionSet = false;
 
     constructor(
         address _monsterNFT,
-        address _erc20, // TODO: replace with honey custom contract
+        address _erc20,
         uint256 _startTime,
         uint256 _duration
     ) {
@@ -55,41 +57,41 @@ contract MonsterAuction is Ownable, IERC721Receiver {
         timeEnd = timeStart + duration;
     }
 
-    // Necesito crear una función que abstraiga los bids en una sola usando selectors o algo así... para no repetir
-    // pero por el momento creo que para fines prácticos funciona
-    function placeBid(uint256 _bid, uint256 _monster) external {
+    function placeBid(uint256 _bid, uint256 _monsterPosition) external {
         require(!paused, "contract is paused");
         require(block.timestamp > timeStart, "not started");
+        require(erc20.allowance(msg.sender, address(this)) >= _bid, "msg.sender must approve token");
         require(erc20.balanceOf(msg.sender) >= _bid, "insufficient funds");
 
         // This tell us in which day we are and we use it as id
         uint256 daysSinceStart = (block.timestamp - timeStart) / 60 / 60 / 24;
         uint256 currDay = daysSinceStart + 1; // we add to make 3800 days exactly
         require(currDay <= duration, "auction is over");
+        require(
+            block.timestamp - lastExecutiontime <= dailyDuration,
+            "auction on execution period"
+        );
 
         // Convert the msg.sender address to uint256 type in order to store in bids matrix
         uint256 convertedAddr = _addrToUint256(msg.sender);
 
         uint256 _monsterId = dailyMonster[currDay];
-            require(
-                _bid > highestBid1,
-                "you cannot bid a lower amount than the actual higher"
-            );
+        require(
+            _bid > highestBid1,
+            "you cannot bid a lower amount than the actual higher"
+        );
 
-            // Transfer funds to the contract owner (I need to confirm if will be to the owner or the contract itself)
-            erc20.transferFrom(msg.sender, address(this), _bid);
+        erc20.transferFrom(msg.sender, address(this), _bid);
 
-            uint256 previousHighBid = highestBid1;
-            address previousHighBidder = highestBidder1;
+        uint256 previousHighBid = highestBid1;
+        address previousHighBidder = highestBidder1;
 
-            highestBid1 = _bid;
-            highestBidder1 = msg.sender;
+        highestBid1 = _bid;
+        highestBidder1 = msg.sender;
 
-            // No matter what we want to have a register of all the bids
-            bids1[currDay].push([convertedAddr, _bid, _monsterId, block.timestamp]);
+        bids1[currDay].push([convertedAddr, _bid, _monsterId, block.timestamp]);
 
-            // If there are more than five return the fifth its money
-            returnFunds(previousHighBid, previousHighBidder, _monster);
+        returnFunds(previousHighBid, previousHighBidder, _monsterPosition);
 
         emit LogBid(msg.sender, _bid, _monsterId);
     }
@@ -105,36 +107,27 @@ contract MonsterAuction is Ownable, IERC721Receiver {
         }
     }
 
-    function getMonstersByDay(uint256 _day)
-        public
-        view
-        returns (uint256)
-    {
+    function getMonstersByDay(uint256 _day) public view returns (uint256) {
         return dailyMonster[_day];
     }
 
-    // necesito una manera más elegante de hacer esto...
-    function getBids(uint256 _day)
-        public
-        view
-        returns (uint256[4][] memory)
-    {
+    function getBids(uint256 _day) public view returns (uint256[4][] memory) {
         uint256[4][] memory _bids;
 
         _bids = bids1[_day];
 
         return _bids;
     }
-    // Admin stuff
-    // This should be internal... maybe
-    function setMonstersForDailyAction(uint256 _day) public onlyOwner {
-        uint256 pseudoRandom = pseudoRand();
-        
-        getNFT(uint256(keccak256(abi.encode(pseudoRandom, 0))), _day);
-    }
 
-    // pordía no recibir el día pero esto haría que si por algo se nos pasa no podamos ejecutar auctions pasadas
-    function execute(uint256 _day) external onlyOwner {
+    function execute(uint256 _day) external {
+        require(lastExecutedDay < _day, "already executed day");
+        require(
+            block.timestamp - lastExecutiontime > dailyDuration,
+            "too soon"
+        );
+        require(highestBidder1 != address(0), "no bids for this auction");
+        require(highestBid1 > 0, "no bids for this auction");
+
         // Send monsters to winners
         uint256 monster1 = dailyMonster[_day];
         address winner1 = _uint256ToAddr(
@@ -142,13 +135,27 @@ contract MonsterAuction is Ownable, IERC721Receiver {
         );
         monsterNFT.safeTransferFrom(address(this), winner1, monster1);
 
-        // RESET bids
+        // Reset bids
         highestBid1 = 0;
         highestBidder1 = address(0);
 
+        setMonstersForDailyAuction(_day + 1);
 
-        // The Auction would be done in $honey then switch for Wpe/honey LP and
-        setMonstersForDailyAction(_day + 1);
+        lastExecutedDay = _day;
+        lastExecutiontime = block.timestamp;
+    }
+
+    function setInitialAuction() external onlyOwner {
+        require(!initialAuctionSet, "Initial auction already set");
+        setMonstersForDailyAuction(1);
+        initialAuctionSet = true;
+        lastExecutiontime = block.timestamp;
+    }
+
+    function setMonstersForDailyAuction(uint256 _day) internal {
+        uint256 pseudoRandom = pseudoRand();
+
+        getNFT(uint256(keccak256(abi.encode(pseudoRandom, 0))), _day);
     }
 
     function pauseAuction(bool _value) external onlyOwner {
@@ -171,11 +178,8 @@ contract MonsterAuction is Ownable, IERC721Receiver {
             );
     }
 
-    function getNFT(
-        uint256 intialRandom,
-        uint256 _day
-    ) internal {
-        uint256 pseudoRandom = intialRandom % counter;
+    function getNFT(uint256 _initialRandom, uint256 _day) internal {
+        uint256 pseudoRandom = _initialRandom % counter;
         pseudoRandom += startIndex;
 
         _day = _day;
@@ -192,7 +196,9 @@ contract MonsterAuction is Ownable, IERC721Receiver {
         } else {
             openMapping[pseudoRandom] = startIndex + counter - 1;
         }
+
         counter--;
+
         if (counter == 0) {
             //Change startIndex
             startIndex += 500;

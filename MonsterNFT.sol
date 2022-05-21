@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
 
-
 pragma solidity >=0.7.0 <0.9.0;
 
 import "./base/ERC721Checkpointable.sol";
@@ -21,7 +20,6 @@ contract MonsterNFT is Ownable, ERC721Checkpointable {
     mapping(uint256 => uint256) public MonsterCategory; //ID to Int Status
     mapping(uint256 => uint256) public miscSetting;
 
-
     constructor(
         string memory _name,
         string memory _symbol,
@@ -33,6 +31,7 @@ contract MonsterNFT is Ownable, ERC721Checkpointable {
     // public
     function mint(address _to, uint256 _mintNumber) public {
         require(enabledMinter[msg.sender] , "!minter");
+        require(!_exists(_mintNumber), "already minted!");
         uint256 supply = totalSupply();
         require(!paused, "paused" );
         require(supply + 1 <= maxSupply, "OverMaxSupply" );
@@ -52,6 +51,7 @@ contract MonsterNFT is Ownable, ERC721Checkpointable {
     function _baseURI() internal view virtual override returns (string memory) {
       return baseTokenURI;
     }
+
     function setBaseURI(string memory _value) public onlyOwner{
       baseTokenURI = _value;
     }
@@ -63,18 +63,21 @@ contract MonsterNFT is Ownable, ERC721Checkpointable {
     function setMinter(address _minter, bool _option) public onlyOwner {
       enabledMinter[_minter] = _option;
     }
+
     function setMisc(uint256[] calldata  _ids, uint256[] calldata  _values) public onlyOwner {
       require(_ids.length == _values.length, "Must provide equal ids and values" );
       for(uint256 i = 0; i < _ids.length; i++){
         miscSetting[_ids[i]] = _values[i];
       }
     }
+
     function setMonsterCategory(uint256[] calldata  _ids, uint256[] calldata  _values) public onlyOwner {
       require(_ids.length == _values.length, "Must provide equal ids and values" );
       for(uint256 i = 0; i < _ids.length; i++){
         MonsterCategory[_ids[i]] = _values[i];
       }
     }
+    
     function pause(bool _state) public onlyOwner {
       paused = _state;
     }
