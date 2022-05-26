@@ -39,8 +39,10 @@ contract MonsterAuction is Ownable, IERC721Receiver {
     mapping(uint256 => uint256) public dailyMonster;
 
     uint256 public dailyDuration = 82800;
-    uint256 public lastExecutiontime = 0;
+    uint256 public lastExecutionTime = 0;
+    uint256 public nextExecutionTime = 0;
     uint256 public lastExecutedDay = 0;
+    uint256 public maxExecutionPeriod = 14400; // Defaulting to 4 hours
     bool private initialAuctionSet = false;
 
     constructor(
@@ -60,7 +62,10 @@ contract MonsterAuction is Ownable, IERC721Receiver {
     function placeBid(uint256 _bid, uint256 _monsterPosition) external {
         require(!paused, "contract is paused");
         require(block.timestamp > timeStart, "not started");
-        require(erc20.allowance(msg.sender, address(this)) >= _bid, "msg.sender must approve token");
+        require(
+            erc20.allowance(msg.sender, address(this)) >= _bid,
+            "msg.sender must approve token"
+        );
         require(erc20.balanceOf(msg.sender) >= _bid, "insufficient funds");
 
         // This tell us in which day we are and we use it as id
@@ -68,7 +73,7 @@ contract MonsterAuction is Ownable, IERC721Receiver {
         uint256 currDay = daysSinceStart + 1; // we add to make 3800 days exactly
         require(currDay <= duration, "auction is over");
         require(
-            block.timestamp - lastExecutiontime <= dailyDuration,
+            block.timestamp - lastExecutionTime < dailyDuration,
             "auction on execution period"
         );
 
@@ -120,36 +125,53 @@ contract MonsterAuction is Ownable, IERC721Receiver {
     }
 
     function execute(uint256 _day) external {
-        require(lastExecutedDay < _day, "already executed day");
+        require(lastExecutedDay <= _day, "already executed day");
         require(
-            block.timestamp - lastExecutiontime > dailyDuration,
+            block.timestamp - lastExecutionTime > dailyDuration,
             "too soon"
         );
-        require(highestBidder1 != address(0), "no bids for this auction");
-        require(highestBid1 > 0, "no bids for this auction");
 
-        // Send monsters to winners
-        uint256 monster1 = dailyMonster[_day];
-        address winner1 = _uint256ToAddr(
-            bids1[_day][bids1[_day].length - 1][0]
-        );
-        monsterNFT.safeTransferFrom(address(this), winner1, monster1);
 
-        // Reset bids
-        highestBid1 = 0;
-        highestBidder1 = address(0);
+        // Send monster to winner only if there was at least one bid
+        if (highestBidder1 != address(0)) {
+            // Send monsters to winners
+            uint256 monster1 = dailyMonster[_day];
+            address winner1 = _uint256ToAddr(
+                bids1[_day][bids1[_day].length - 1][0]
+            );
+            monsterNFT.safeTransferFrom(address(this), winner1, monster1);
 
-        setMonstersForDailyAuction(_day + 1);
+            // RESET bids
+            highestBid1 = 0;
+            highestBidder1 = address(0);
+
+            setMonstersForDailyAuction(_day + 1);
+        } else {
+            // Moves the current monster to the next day
+            dailyMonster[_day + 1] = dailyMonster[_day];
+        }
 
         lastExecutedDay = _day;
-        lastExecutiontime = block.timestamp;
+        uint256 timeToCompleteTheDay = 86400 - currentDayElapsedTime();
+        // if is too late
+        if (
+            block.timestamp - lastExecutionTime <=
+            dailyDuration + 3600 + maxExecutionPeriod
+        ) {
+            lastExecutionTime = block.timestamp + timeToCompleteTheDay;
+        } else {
+            lastExecutionTime = nextExecutionTime;
+        }
+
+        nextExecutionTime = lastExecutionTime + 1 days;
     }
 
     function setInitialAuction() external onlyOwner {
         require(!initialAuctionSet, "Initial auction already set");
         setMonstersForDailyAuction(1);
         initialAuctionSet = true;
-        lastExecutiontime = block.timestamp;
+        lastExecutionTime = block.timestamp;
+        nextExecutionTime = block.timestamp + 1 days;
     }
 
     function setMonstersForDailyAuction(uint256 _day) internal {
@@ -162,7 +184,16 @@ contract MonsterAuction is Ownable, IERC721Receiver {
         paused = _value;
     }
 
+    // hours in seconds
+    function setMaxExecutionPeriod(uint256 _value) external onlyOwner {
+        maxExecutionPeriod = _value;
+    }
+
     // UTILS
+    function currentDayElapsedTime() public view returns (uint256) {
+        return (block.timestamp - timeStart) % 86400;
+    }
+
     function _addrToUint256(address a) internal pure returns (uint256) {
         return uint256(uint160(a));
     }
