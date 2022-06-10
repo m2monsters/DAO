@@ -25,17 +25,17 @@ contract MonsterCapsule is ERC1155, Ownable {
     bool public paused;
 
     // TODO: Change url to the production one
-    constructor()
+    constructor(uint256 _maxSupply)
         ERC1155(
             "https:///capsule/{id}"
         )
     {
         paused = false;
+        maxSupply = _maxSupply;
     }
 
-    function setBaseURI(string memory _value, _maxSupply) public onlyOwner{
+    function setBaseURI(string memory _value) public onlyOwner{
         _setURI(_value);
-        maxSupply = _maxSupply;
     }
 
     function setMaxPerGen(uint256 _gen, uint _value) public onlyOwner{
